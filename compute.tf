@@ -233,3 +233,18 @@ resource "null_resource" "ansible_playbook_os" {
          }
     }
 }
+
+resource "null_resource" "ansible_playbook_pulsar" {
+    depends_on = [
+      local_file.ansible_host,
+      null_resource.ansible_playbook_os,
+    ]
+    provisioner "local-exec" {
+        command = "ansible-playbook pulsar/main.yaml --extra-vars=\"pulsar_version=$pulsar_version\" \"pulsar_cluster_name=$pulsar_cluster_name\""
+        environment = {
+          pulsar_version = var.pulsar_version
+          pulsar_cluster_name = var.pulsar_cluster_name
+         }
+    }
+}
+

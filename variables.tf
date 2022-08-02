@@ -46,3 +46,7 @@ variable "instance_types" {
 variable "disk_sizes" {
   type = map(number)
 }
+variable "pulsar_cluster_name"{
+  description = "Pulsar cluster name"
+  default = "streamnative"
+}

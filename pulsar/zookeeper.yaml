@@ -1,0 +1,62 @@
+---
+- hosts: zookeeper
+  gather_facts: yes
+  become: true
+  tasks:
+  - name: Format disks
+    tags: disk
+    filesystem:
+      fstype: ext4
+      dev: '{{ item }}'
+    with_items:
+    - '/dev/disk/by-id/google-persistent-disk-1'
+  - name: Mount disks
+    tags: disk
+    mount:
+      path: "{{ item.path }}"
+      src: "{{ item.src }}"
+      fstype: ext4
+      opts: defaults,noatime,nodiscard
+      state: mounted
+    with_items:
+    - { path: "/opt/pulsar/data/zookeeper", src: "/dev/disk/by-id/google-persistent-disk-1" }
+  - name: set facts
+    tags: zk-facts
+    set_fact:
+      zid: "{{ groups['zookeeper'].index(inventory_hostname)+1 }}"
+      cluster_name: "{{ pulsar_clluster_name }}"
+      max_heap_memory: "{{ zookeeper_max_heap_memory | default('2g') }}" 
+      # max_heap_memory: "{{ hostvars[zk][ansible_facts][ansible_memtotal_mb] * 0.45 | int }}"
+      max_direct_memory: "{{ zookeeper_max_direct_memory | default('2g') }}"
+      # max_direct_memory: "{{ hostvars[zk][ansible_facts][ansible_memtotal_mb] * 0.45 | int }}"
+      service_url: "pulsar://{{ groups['broker']|map('extract', hostvars, 'inventory_hostname')|map('regex_replace','^(.*)$','\\1:6650')|join(',') }}"
+      http_url: "http://{{ groups['broker']|map('extract', hostvars, 'inventory_hostname')|map('regex_replace','^(.*)$','\\1:8080')|join(',') }}"
+  - name: add pulsar env
+    tags: zk-config
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    with_items:
+    - {src: '../templates/pulsar_env.sh', dest: '/opt/pulsar/conf/pulsar_env.sh'}
+    - {src: '../templates/zoo.cfg', dest: '/opt/pulsar/conf/zookeeper.conf'}
+    - {src: '../templates/myid', dest: '/opt/pulsar/data/zookeeper/myid'}
+    - {src: '../templates/zookeeper.service', dest: '/etc/systemd/system/zookeeper.service'}
+  - name: zookeeper systemd
+    tags: zk-config
+    systemd:
+      state: restarted
+      daemon_reload: yes
+      enabled: true
+      name: "zookeeper"
+  - name: init znode
+    tags: zk-config
+    shell: |
+      bin/pulsar initialize-cluster-metadata \
+        --cluster {{ cluster_name }} \
+        --zookeeper localhost:2181 \
+        --configuration-store localhost:2181 \
+        --web-service-url {{ http_url }} \
+        --broker-service-url {{ service_url }}
+    args:
+      chdir: /opt/pulsar
+    when: groups['zookeeper'][0] == inventory_hostname

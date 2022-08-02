@@ -1,0 +1,32 @@
+pulsar_version = "2.9.3"
+
+ssh_user = "<ssh_user_name>"
+ssh_key_file = "<ssh_user_public_key>"
+
+terraform_sa_credentials = "<gcp-sa.json>"
+terraform_runner = "<gcp-impersonated-sa>"
+
+project = "<gcp-project>"
+region = "<gcp-region>"
+zone = "<gcp-zone>"
+
+gce_image = "debian-cloud/debian-11"
+
+num_zookeeper_nodes = 3
+num_bookie_nodes    = 3
+num_broker_nodes    = 2
+num_proxy_nodes     = 0
+num_client_nodes    = 1
+
+instance_types      = {
+  "zookeeper"   = "n2-standard-2"
+  "bookie"      = "n2-standard-2"
+  "broker"      = "n2-standard-2"
+  "proxy"       = "n2-standard-2"
+  "client"      = "n2-standard-2"
+}
+disk_sizes = {
+  "zk_data" = 20
+  "journal" = 50
+  "ledger" = 50
+}

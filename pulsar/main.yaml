@@ -1,0 +1,214 @@
+---
+- hosts: zookeeper
+  gather_facts: yes
+  become: true
+  tasks:
+  - name: Format disks
+    tags: disk
+    filesystem:
+      fstype: ext4
+      dev: '{{ item }}'
+    with_items:
+    - '/dev/disk/by-id/google-persistent-disk-1'
+  - name: Mount disks
+    tags: disk
+    mount:
+      path: "{{ item.path }}"
+      src: "{{ item.src }}"
+      fstype: ext4
+      opts: defaults,noatime,nodiscard
+      state: mounted
+    with_items:
+    - { path: "/opt/pulsar/data/zookeeper", src: "/dev/disk/by-id/google-persistent-disk-1" }
+  - name: set facts
+    tags: zk-facts
+    set_fact:
+      zid: "{{ groups['zookeeper'].index(inventory_hostname)+1 }}"
+      cluster_name: "{{ pulsar_cluster_name }}"
+      service_url: "pulsar://{{ groups['broker']|map('extract', hostvars, 'inventory_hostname')|map('regex_replace','^(.*)$','\\1:6650')|join(',') }}"
+      http_url: "http://{{ groups['broker']|map('extract', hostvars, 'inventory_hostname')|map('regex_replace','^(.*)$','\\1:8080')|join(',') }}"
+  - name: add pulsar env
+    tags: zk-config
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    with_items:
+    - {src: '../templates/pulsar_env.sh', dest: '/opt/pulsar/conf/pulsar_env.sh'}
+    - {src: '../templates/zoo.cfg', dest: '/opt/pulsar/conf/zookeeper.conf'}
+    - {src: '../templates/myid', dest: '/opt/pulsar/data/zookeeper/myid'}
+    - {src: '../templates/zookeeper.service', dest: '/etc/systemd/system/zookeeper.service'}
+  - name: zookeeper systemd
+    tags: zk-config
+    systemd:
+      state: restarted
+      daemon_reload: yes
+      enabled: true
+      name: "zookeeper"
+  - name: init znode
+    tags: zk-config
+    shell: |
+      bin/pulsar initialize-cluster-metadata \
+        --cluster {{ cluster_name }} \
+        --zookeeper localhost:2181 \
+        --configuration-store localhost:2181 \
+        --web-service-url {{ http_url }} \
+        --broker-service-url {{ service_url }}
+    args:
+      chdir: /opt/pulsar
+    when: groups['zookeeper'][0] == inventory_hostname
+
+- hosts: bookie
+  become: true
+  gather_facts: yes
+  tasks:
+  - name: Format disks
+    tags: disk
+    filesystem:
+      fstype: ext4
+      dev: '{{ item }}'
+    with_items:
+     - '/dev/disk/by-id/google-persistent-disk-1'
+     - '/dev/disk/by-id/google-persistent-disk-2'
+  - name: Mount disks
+    tags: disk
+    mount:
+      path: "{{ item.path }}"
+      src: "{{ item.src }}"
+      fstype: ext4
+      opts: defaults,noatime,nodiscard
+      state: mounted
+    with_items:
+    - { path: "/opt/pulsar/data/bookkeeper/journal", src: "/dev/disk/by-id/google-persistent-disk-1" }
+    - { path: "/opt/pulsar/data/bookkeeper/ledger", src: "/dev/disk/by-id/google-persistent-disk-2"}
+  - set_fact:
+      zookeeper_servers: "{{ groups['zookeeper']|map('extract', hostvars, ['ansible_default_ipv4', 'address'])|map('regex_replace', '^(.*)$', '\\1:2181') | join(',') }}"
+  - name: bookie config
+    tags: bk-config
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    with_items:
+    - {src: '../templates/pulsar_env.sh', dest: '/opt/pulsar/conf/pulsar_env.sh'}
+    - {src: '../templates/bookkeeper.conf', dest: '/opt/pulsar/conf/bookkeeper.conf'}
+    - {src: '../templates/zoo.cfg', dest: '/opt/pulsar/conf/zookeeper.conf'}
+    - {src: '../templates/autorecovery.conf', dest: '/opt/pulsar/conf/autorecovery.conf'}
+    - {src: '../templates/bookkeeper.service', dest: '/etc/systemd/system/bookkeeper.service'}
+    - {src: '../templates/autorecovery.service', dest: '/etc/systemd/system/autorecovery.service'}
+  - name: bookie systemd
+    tags: bk-config
+    systemd:
+      state: restarted
+      enabled: yes
+      daemon_reload: yes
+      name: "bookkeeper"
+  - name: autorecovery systemd
+    systemd:
+      state: restarted
+      enabled: yes
+      daemon_reload: yes
+      name: "autorecovery"
+- hosts: broker
+  gather_facts: yes
+  become: true
+  tasks:
+  - set_fact:
+      cluster_name: "{{ pulsar_cluster_name }}"
+      zookeeper_servers: "{{ groups['zookeeper']|map('extract', hostvars, ['ansible_default_ipv4', 'address'])|map('regex_replace', '^(.*)$', '\\1:2181') | join(',') }}"
+  - name: connector dir
+    file:
+      path: /opt/pulsar/connectors
+      state: directory
+  - name: download pulsar io packages
+    get_url:
+      url: https://archive.apache.org/dist/pulsar/pulsar-{{ pulsar_version }}/connectors/pulsar-io-{{ item }}-{{ pulsar_version }}.nar
+      dest: /opt/pulsar/connectors/pulsar-io-{{ item }}-{{ pulsar_version }}.nar
+    loop:
+    - kafka
+  - name: setup broker
+    tags: br-config
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    with_items:
+    - {src: '../templates/pulsar_env.sh', dest: '/opt/pulsar/conf/pulsar_env.sh'}
+    - {src: '../templates/broker.conf', dest: '/opt/pulsar/conf/broker.conf'}
+    - {src: '../templates/functions_worker.yml', dest: '/opt/pulsar/conf/functions_worker.yml'}
+    - {src: '../templates/zoo.cfg', dest: '/opt/pulsar/conf/zookeeper.conf'}
+    - {src: '../templates/pulsar.broker.service', dest: '/etc/systemd/system/pulsar.broker.service'}
+  - name: broker systemd
+    tags: br-config
+    systemd:
+      state: restarted
+      daemon_reload: yes
+      enabled: yes
+      name: "pulsar.broker"
+- hosts: proxy
+  gather_facts: yes
+  become: true
+  tasks:
+  - set_fact:
+      cluster_name: "{{ pulsar_cluster_name }}"
+      zookeeper_servers: "{{ groups['zookeeper']|map('extract', hostvars, ['ansible_default_ipv4', 'address'])|map('regex_replace', '^(.*)$', '\\1:2181') | join(',') }}"
+  - name: Set up proxy
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    with_items:
+    - {src: '../templates/pulsar_env.sh', dest: '/opt/pulsar/conf/pulsar_env.sh'}
+    - {src: '../templates/proxy.conf', dest: '/opt/pulsar/conf/proxy.conf'}
+    - {src: '../templates/broker.conf', dest: '/opt/pulsar/conf/broker.conf'}
+    - {src: '../templates/zoo.cfg', dest: '/opt/pulsar/conf/zookeeper.conf'}
+    - {src: '../templates/pulsar.proxy.service', dest: '/etc/systemd/system/pulsar.proxy.service'}
+  - systemd:
+      state: restarted
+      daemon_reload: yes
+      enabled: yes
+      name: "pulsar.proxy"
+- hosts: client
+  gather_facts: yes
+  become: true
+  tasks:
+  - name: set facts
+    set_fact:
+      cluster_name: "{{ pulsar_cluster_name }}"
+      service_url: "pulsar://{{ groups['broker']|map('extract', hostvars, 'inventory_hostname')|map('regex_replace','^(.*)$','\\1:6650')|join(',') }}"
+      http_url: "http://{{ groups['broker']|map('extract', hostvars, 'inventory_hostname')|map('regex_replace','^(.*)$','\\1:8080')|join(',') }}"
+  - name: setup omb
+    shell: |
+      cd /opt
+      git clone https://github.com/yuweisung/openmessaging-benchmark.git
+      cd openmessaging-benchmark
+      mvn license:format
+      mvn install
+  - name: setup client
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    with_items:
+    - {src: '../templates/client.conf', dest: '/opt/pulsar/conf/client.conf'}
+    - {src: '../templates/pulsar.yaml', dest: '/opt/openmessaging-benchmark/pulsar.yaml'}
+    - {src: '../templates/workers.yaml', dest: '/opt/openmessaging-benchmark/workers.yaml'}
+    - {src: '../templates/pulsar-effectively-once.yaml', dest: '/opt/openmessaging-benchmark/pulsar-effectively-once.yaml'}
+  - name: Configure memory
+    lineinfile:
+      dest: /opt/openmessaging-benchmark/bin/benchmark-worker
+      regexp: '^JVM_MEM='
+      line: 'JVM_MEM="-Xms100G -Xmx100G -XX:+UseZGC"'
+  - name: Configure memory
+    lineinfile:
+      dest: /opt/openmessaging-benchmark/bin/benchmark
+      regexp: '^JVM_MEM='
+      line: 'JVM_MEM="-Xmx4G"'
+  - name: Install benchmark systemd service
+    template:
+      src: "templates/benchmark-worker.service"
+      dest: "/etc/systemd/system/benchmark-worker.service"
+  - systemd:
+      state: restarted
+      daemon_reload: yes
+      name: "benchmark-worker"  
+  - name: run benchmark
+    shell: |
+      cd /opt/openmessaging-benchmark
+      bin/benchmark --drivers ./pulsar.yaml ./workloads/1-topic-16-partitions-1kb.yaml
+    when: groups['client'][0] == inventory_hostname

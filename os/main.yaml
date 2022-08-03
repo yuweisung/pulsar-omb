@@ -20,6 +20,8 @@
         - tuned-utils
         - tuned-utils-systemtap
         - chrony
+        - git
+        - maven
   - name: tuned service
     systemd:
       name: "{{ item }}"

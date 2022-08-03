@@ -42,10 +42,12 @@
 # PULSAR_GLOBAL_ZK_CONF=
 
 # Extra options to be passed to the jvm
-PULSAR_MEM=" -Xms{{ max_heap_memory }} -Xmx{{ max_heap_memory }} -XX:MaxDirectMemorySize={{ max_direct_memory }}"
+
+PULSAR_MEM=" -Xms{{ (ansible_memtotal_mb*0.45)|int|string + 'm' }} -Xmx{{ (ansible_memtotal_mb*0.45)|int|string + 'm' }} -XX:MaxDirectMemorySize={{ (ansible_memtotal_mb*0.45)|int|string + 'm' }}"
+
 # Garbage collection options
 PULSAR_GC=" -XX:+UseG1GC -XX:MaxGCPauseMillis=50 -XX:+ParallelRefProcEnabled -XX:+UnlockExperimentalVMOptions -XX:+DoEscapeAnalysis -XX:ParallelGCThreads=4 -XX:ConcGCThreads=4 -XX:G1NewSizePercent=50 -XX:+DisableExplicitGC"
-
+  
 # Extra options to be passed to the jvm
 PULSAR_EXTRA_OPTS="${PULSAR_EXTRA_OPTS} ${PULSAR_MEM} ${PULSAR_GC} -Dio.netty.leakDetectionLevel=disabled -Dio.netty.recycler.maxCapacity.default=1000 -Dio.netty.recycler.linkCapacity=1024"
 

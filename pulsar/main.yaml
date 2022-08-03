@@ -189,26 +189,24 @@
     - {src: '../templates/pulsar.yaml', dest: '/opt/openmessaging-benchmark/pulsar.yaml'}
     - {src: '../templates/workers.yaml', dest: '/opt/openmessaging-benchmark/workers.yaml'}
     - {src: '../templates/pulsar-effectively-once.yaml', dest: '/opt/openmessaging-benchmark/pulsar-effectively-once.yaml'}
+    - {src: '../templates/benchmark-worker.service', dest: '/etc/systemd/system/benchmark-worker.service'}
   - name: Configure memory
     lineinfile:
       dest: /opt/openmessaging-benchmark/bin/benchmark-worker
       regexp: '^JVM_MEM='
-      line: 'JVM_MEM="-Xms100G -Xmx100G -XX:+UseZGC"'
+      line: 'JVM_MEM="-Xmx2G"'
   - name: Configure memory
     lineinfile:
       dest: /opt/openmessaging-benchmark/bin/benchmark
       regexp: '^JVM_MEM='
-      line: 'JVM_MEM="-Xmx4G"'
-  - name: Install benchmark systemd service
-    template:
-      src: "templates/benchmark-worker.service"
-      dest: "/etc/systemd/system/benchmark-worker.service"
+      line: 'JVM_MEM="-Xmx2G"'
   - systemd:
       state: restarted
       daemon_reload: yes
       name: "benchmark-worker"  
-  - name: run benchmark
-    shell: |
-      cd /opt/openmessaging-benchmark
-      bin/benchmark --drivers ./pulsar.yaml ./workloads/1-topic-16-partitions-1kb.yaml
-    when: groups['client'][0] == inventory_hostname
+      enabled: yes 
+  # - name: run benchmark
+  #   shell: |
+  #     cd /opt/openmessaging-benchmark
+  #     bin/benchmark --drivers ./pulsar.yaml ./workloads/1-topic-16-partitions-1kb.yaml
+  #   run_once: 

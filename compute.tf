@@ -131,7 +131,7 @@ resource "google_dns_record_set" "cli-dns" {
     managed_zone = google_dns_managed_zone.sn-se-zone.name
     name = "client-${count.index+1}.${google_dns_managed_zone.sn-se-zone.dns_name}"
     type = "A"
-    rrdatas = [google_compute_instance.broker[count.index].network_interface.0.network_ip]
+    rrdatas = [google_compute_instance.client[count.index].network_interface.0.network_ip]
     ttl = 300
 }
 
